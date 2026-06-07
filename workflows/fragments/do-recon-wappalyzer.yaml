@@ -1,0 +1,112 @@
+kind: module
+name: do-recon-wappalyzer
+description: Tech detection using Wappalyzer fingerprint DB (balanced mode) - catches tech that pd-httpx misses
+tags: fingerprint, tech-detect, wappalyzer, enrichment
+
+# -----------------------------------------------------------------------------
+# PARAMS SECTION
+# -----------------------------------------------------------------------------
+params:
+  - name: httpFile
+    default: "{{Output}}/probing/http-{{TargetSpace}}.txt"
+
+  - name: wappalyzerOutputDir
+    default: "{{Output}}/fingerprint/"
+
+  - name: wappalyzerJsonFile
+    default: "{{Output}}/fingerprint/wappalyzer-{{TargetSpace}}.json"
+
+  - name: wappalyzerCsvFile
+    default: "{{Output}}/fingerprint/wappalyzer-{{TargetSpace}}.csv"
+
+  - name: wappalyzerHtmlFile
+    default: "{{Output}}/fingerprint/wappalyzer-{{TargetSpace}}.html"
+
+  - name: wappalyzerWorkers
+    default: "5"
+
+  - name: wappalyzerTimeout
+    default: "15"
+
+  # Scan type: 'balanced' (default) or 'full'
+  # - balanced: HTTP-based detection using Wappalyzer's fingerprint DB (headers, HTML, JS, DNS, cookies)
+  #   Catches more tech than pd-httpx because Wappalyzer has a larger, more detailed fingerprint set
+  #   Fast, no browser needed — good for enrichment runs
+  # - full: Runs headless Chromium + Wappalyzer extension for JS-rendered tech detection
+  #   Requires Xvfb/display for Chrome extension support in headless mode
+  #   Slower but catches SPAs, client-rendered frameworks
+  #   To use: change this default and set up chrome with: python3 -m playwright install chromium
+  - name: wappalyzerScanType
+    default: "balanced"
+
+# -----------------------------------------------------------------------------
+# DEPENDENCIES SECTION
+# -----------------------------------------------------------------------------
+dependencies:
+  variables:
+    - name: Target
+      type: string
+      required: true
+
+reports:
+  - name: wappalyzer-json
+    path: "{{wappalyzerJsonFile}}"
+    type: json
+    description: Wappalyzer tech detection results
+
+  - name: wappalyzer-csv
+    path: "{{wappalyzerCsvFile}}"
+    type: csv
+    description: Wappalyzer results in CSV format
+
+# -----------------------------------------------------------------------------
+# STEPS SECTION
+# -----------------------------------------------------------------------------
+steps:
+  # ---------------------------------------------------------------------------
+  # Setup: Create output folder
+  # ---------------------------------------------------------------------------
+  - name: create-output-folder
+    type: function
+    log: "Creating wappalyzer output folder"
+    pre_condition: 'file_exists("{{httpFile}}")'
+    functions:
+      - 'create_folder("{{wappalyzerOutputDir}}")'
+
+  # ---------------------------------------------------------------------------
+  # Run wappalyzer-next using Wappalyzer's fingerprint DB
+  # balanced mode: HTTP-based detection (headers, HTML, JS analysis, cookies, DNS, meta)
+  # Uses Wappalyzer's extensive fingerprint set that's more comprehensive than pd-httpx
+  # ---------------------------------------------------------------------------
+  - name: wappalyzer-scan
+    type: bash
+    log: "Running Wappalyzer tech detection with Wappalyzer fingerprint DB"
+    pre_condition: 'file_exists("{{httpFile}}")'
+    commands:
+      - 'wappalyzer -i {{httpFile}} -w {{wappalyzerWorkers}} -t {{wappalyzerTimeout}} --scan-type {{wappalyzerScanType}} -oJ {{wappalyzerJsonFile}} 2>/dev/null || echo "Wappalyzer scan completed with warnings"'
+    on_error:
+      - action: continue
+
+  # ---------------------------------------------------------------------------
+  # Also export CSV for easy grepping in reports
+  # ---------------------------------------------------------------------------
+  - name: wappalyzer-csv-export
+    type: bash
+    log: "Exporting Wappalyzer results to CSV"
+    pre_condition: 'file_exists("{{wappalyzerJsonFile}}")'
+    commands:
+      - 'wappalyzer -i {{httpFile}} -w {{wappalyzerWorkers}} -t {{wappalyzerTimeout}} --scan-type {{wappalyzerScanType}} -oC {{wappalyzerCsvFile}} 2>/dev/null || echo "CSV export skipped"'
+    on_error:
+      - action: continue
+
+  # ---------------------------------------------------------------------------
+  # Process results into a readable summary
+  # ---------------------------------------------------------------------------
+  - name: process-wappalyzer-summary
+    type: bash
+    log: "Extracting technology summary from Wappalyzer results"
+    pre_condition: 'file_exists("{{wappalyzerJsonFile}}")'
+    commands:
+      - 'cat {{wappalyzerJsonFile}} | jq -r ''to_entries[] | {url: .key, tech: [.value | to_entries[] | "\(.key) \(.value.version // "")"]} | "\(.url): \(.tech | join(", "))"'' > {{Output}}/fingerprint/wappalyzer-summary-{{TargetSpace}}.txt 2>/dev/null || true'
+    on_error:
+      - action: continue

@@ -1,0 +1,98 @@
+kind: flow
+name: general-api
+description: Full recon - subdomains, fingerprint, spider, archive, content, historical vuln scan + AI triage
+tags: recon, domain, api
+help:
+  example_targets: ['example.com', 'hackerone.com']
+  usage: osmedeus run -f general-api -t example.com
+
+params:
+  - name: enableDnsBruteFocing
+    default: true
+
+dependencies:
+  variables:
+    - name: Target
+      type: domain
+      required: true
+
+modules:
+  # ── PHASE 1: SUBDOMAIN ENUMERATION ──────────────────────────────────────────
+  # subfinder (5 API keys) + findomain + assetfinder
+  - name: enum-subdomain
+    path: common/enum-subdomain.yaml
+
+  # ── PHASE 2: DNS PROBING ────────────────────────────────────────────────────
+  # dnsx resolution + bruteforce + permutations
+  - name: probe-dns
+    path: common/probe-dns.yaml
+    depends_on:
+      - enum-subdomain
+
+  # ── PHASE 3: HTTP FINGERPRINTING ────────────────────────────────────────────
+  # pd-httpx: tech detect, TLS, JARM, CDN, status, title, favicon
+  - name: recon-http-fp
+    path: common/recon-http-fp.yaml
+    depends_on:
+      - probe-dns
+
+  # ── PHASE 4: SCREENSHOTS ────────────────────────────────────────────────────
+  - name: recon-screenshot
+    path: common/recon-screenshot.yaml
+    depends_on:
+      - recon-http-fp
+
+  # ── PHASE 5: SPIDERING (katana crawl) ──────────────────────────────────────
+  # Active crawl of live hosts → JS files, API endpoints, params
+  - name: recon-spider
+    path: common/recon-spider.yaml
+    depends_on:
+      - recon-http-fp
+
+  # ── PHASE 6: ARCHIVE URL DISCOVERY ──────────────────────────────────────────
+  # urlfinder + gau: Wayback, URLScan, OTX, CommonCrawl, GitHub, IntelX
+  - name: util-archive
+    path: common/util-archive.yaml
+    depends_on:
+      - recon-http-fp
+
+  # ── PHASE 7: IP SPACE ENUMERATION ───────────────────────────────────────────
+  - name: enum-ipspace
+    path: common/enum-ipspace.yaml
+    depends_on:
+      - recon-http-fp
+
+  # ── PHASE 8: PORT SCANNING ──────────────────────────────────────────────────
+  - name: probe-port
+    path: common/probe-port.yaml
+    depends_on:
+      - recon-http-fp
+
+  # ── PHASE 9: CONTENT DISCOVERY ──────────────────────────────────────────────
+  # vigolium/ffuf directory + file bruteforce
+  - name: scan-content
+    path: common/scan-content.yaml
+    depends_on:
+      - recon-http-fp
+
+  # ── PHASE 10: HISTORICAL VULN SCAN ─────────────────────────────────────────
+  # gau → httpx → nuclei on archive URLs
+  # Catches historical endpoints that active crawling misses
+  - name: gau-scan
+    path: common/gau-scan.yaml
+    depends_on:
+      - recon-http-fp
+
+  # ── PHASE 11: AI TRIAGE (DeepSeek) ─────────────────────────────────────────
+  # Reads gau-scan nuclei + httpx + archive findings via DeepSeek LLM
+  # Generates structured triage report with prioritization
+  - name: ai-triage
+    path: common/ai-triage.yaml
+    depends_on:
+      - recon-http-fp
+
+  # ── PHASE 12: WAPPALYZER TECH DETECTION (enrichment) ─────────────────────
+  - name: recon-wappalyzer
+    path: fragments/do-recon-wappalyzer.yaml
+    depends_on:
+      - recon-http-fp

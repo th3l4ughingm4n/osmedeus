@@ -1,0 +1,33 @@
+kind: flow
+name: url-api
+description: Single URL analysis - fingerprint, spider, content discovery (no vuln scan)
+tags: recon, url, api
+help:
+  example_targets: ['https://example.com', 'https://httpbin.org', 'example.com']
+  usage: osmedeus run -f url-api -t https://example.com
+
+dependencies:
+  variables:
+    - name: Target
+      type: url,domain
+      required: true
+
+modules:
+  - name: do-recon-http-fp
+    path: fragments/do-recon-http-fp.yaml
+
+  - name: do-recon-spider
+    path: fragments/do-recon-spider.yaml
+    depends_on:
+      - do-recon-http-fp
+
+  - name: do-scan-content
+    path: fragments/do-scan-content.yaml
+    depends_on:
+      - do-recon-http-fp
+
+  # Wappalyzer full tech detection (enrichment)
+  - name: do-recon-wappalyzer
+    path: fragments/do-recon-wappalyzer.yaml
+    depends_on:
+      - do-recon-http-fp

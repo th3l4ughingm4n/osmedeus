@@ -52,3 +52,15 @@ PLANNING.md
 PLANNING-*.md
 INTERNAL.md
 INTERNAL-*.md
+
+# Osmedeus runtime data (generated, not tracked)
+database-osm.sqlite
+database-osm.sqlite-shm
+database-osm.sqlite-wal
+database-osm.sqlite.bak-*
+backup-*
+osm-settings.yaml
+server.log
+external-binaries/
+cloud/
+external-venvs/
